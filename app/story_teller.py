@@ -54,6 +54,9 @@ class StoryTeller(BaseEngine):
             for sentence in sentences
         ]
 
+        # Add this line to filter out negative sentences
+        sentences = filter_negative_sentences(sentences, self.metrics_logger if hasattr(self, 'metrics_logger') else None)
+
         new_sentences = []
         image_prompts = []
 
@@ -140,3 +143,43 @@ class StoryTeller(BaseEngine):
         return StartResponse(
             video_file_path=output_path,
         )
+
+def filter_negative_sentences(sentences, metrics_logger=None):
+    """Filter out sentences that contain negative keywords."""
+    from app.pexel import get_negative_keywords
+    
+    keywords = get_negative_keywords()
+    filtered_sentences = []
+    rejected_count = 0
+    rejected_details = []
+    
+    for sentence in sentences:
+        # Convert to lowercase for case-insensitive matching
+        sentence_lower = sentence.lower()
+        
+        # Check if any negative keyword appears
+        matching_keywords = [kw for kw in keywords if kw in sentence_lower]
+        
+        if not matching_keywords:
+            filtered_sentences.append(sentence)
+        else:
+            rejected_count += 1
+            # Store details about the rejected sentence
+            rejected_details.append({
+                "sentence": sentence,
+                "matching_keywords": matching_keywords
+            })
+    
+    # Log summary and details
+    logger.info(f"Sentence filter: {rejected_count} sentences rejected, {len(filtered_sentences)} sentences passed")
+    
+    if rejected_details:
+        logger.info("Rejected sentences details:")
+        for i, details in enumerate(rejected_details, 1):
+            logger.info(f"  {i}. Sentence: {details['sentence'][:50]}...")
+            logger.info(f"     Matched keywords: {', '.join(details['matching_keywords'])}")
+    
+    if metrics_logger:
+        metrics_logger.add_metric('sentences_rejected', rejected_count)
+    
+    return filtered_sentences

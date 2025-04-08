@@ -170,7 +170,7 @@ if "kokoro_voices" not in st.session_state:
     try:
         from app.kokoro_service import kokoro_client
         kokoro_voices = kokoro_client.get_voices()
-        if kokoro_voices:
+        if (kokoro_voices):
             st.session_state["kokoro_voices"] = kokoro_voices
             logger.info(f"Loaded {len(kokoro_voices)} Kokoro voices")
         else:
@@ -570,16 +570,7 @@ async def main():
             # Existing subtitle position control
             subtitles_position = st.selectbox("Subtitle position", ["center,center"])
 
-            
-            # # Add sentence pause control
-            # sentence_pause = st.slider(
-            #     "Pause between sentences (seconds)",
-            #     min_value=0.0,
-            #     max_value=2.0,
-            #     value=0.5,
-            #     step=0.1,
-            #     help="Add extra pause between sentences in narration"
-            # )
+
             
         with adv_col2:
             # Auto-download toggle (boolean selectbox)
@@ -606,16 +597,6 @@ async def main():
 
         # Create the first row of controls for audio settings
         audio_col1, audio_col2, audio_col3 = st.columns(3)
-        
-        with audio_col1:
-            sentence_pause = st.slider(
-                "Sentence pause (seconds)",
-                min_value=0.5,
-                max_value=2.0,
-                value=0.75,
-                step=0.05,
-                help="Add extra pause between sentences in narration"
-            )
         
         with audio_col3:
             voice_style = st.selectbox(
@@ -733,7 +714,6 @@ async def main():
                 voice_provider=(voice_provider.lower() if voice_provider else None) or 
                               os.environ.get("VOICE_PROVIDER", "").lower() or 
                               "tiktok",
-                sentence_pause=sentence_pause,
                 speech_rate=speech_rate,        # Add new parameters
                 voice_style=voice_style
             ),
@@ -818,7 +798,6 @@ async def main():
                     voice_provider=(voice_provider.lower() if voice_provider else None) or 
                                   os.environ.get("VOICE_PROVIDER", "").lower() or 
                                   "tiktok",
-                    sentence_pause=sentence_pause,
                     speech_rate=speech_rate,        # Add new parameters
                     voice_style=voice_style
                 ),

@@ -121,7 +121,7 @@ class MetricsLogger:
                 'timestamp', 'prompt', 'script_length', 'sentence_count',
                 
                 # Voice metrics
-                'voice_provider', 'voice_name', 'sentence_pause_ms',
+                'voice_provider', 'voice_name',
                 
                 # Video search
                 'search_query', 'videos_requested', 'videos_found', 'videos_rejected',

@@ -132,18 +132,6 @@ def adjust_audio_to_target_dBFS(audio_file_path: str | None, target_dBFS=-30.0):
     return audio_file_path
 
 
-def split_audio_at_sentences(speech_path, text):
-    """Split an audio file at sentence boundaries for adding pauses."""
-    from pydub import AudioSegment
-    
-    # Load the audio file
-    audio = AudioSegment.from_file(speech_path)
-    
-    # For simple cases, just return the whole audio as a single segment
-    # This is a basic implementation - you can enhance it to actually split at sentence boundaries
-    return [audio]
-
-
 def make_cuid(prefix: str) -> str:
     """
     Generates a CUID (Collision-resistant internal identifier) with the given prefix.
