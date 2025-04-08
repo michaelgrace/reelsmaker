@@ -40,8 +40,8 @@ def get_negative_keywords():
     ]
     return _negative_keywords_cache
 
-def filter_negative_content(items):
-    """Filter out content that contains negative keywords in description, tags, or URL."""
+def filter_negative_content(items, query=None, metrics_logger=None):
+    """Filter out content that contains negative keywords."""
     keywords = get_negative_keywords()
     filtered_results = []
     rejected_count = 0
@@ -96,13 +96,23 @@ def filter_negative_content(items):
             logger.info(f"  {i}. ID: {details['id']} - URL: {details['url']}")
             logger.info(f"     Matched keywords: {', '.join(details['matching_keywords'])}")
     
+    if metrics_logger:
+        metrics_logger.add_metric('videos_rejected', rejected_count)
+        if rejected_details:
+            # Record which keywords caused rejections
+            rejection_keywords = set()
+            for details in rejected_details:
+                rejection_keywords.update(details['matching_keywords'])
+            metrics_logger.add_metric('rejection_keywords', ', '.join(rejection_keywords))
+    
     return filtered_results
 
 async def search_for_stock_videos(
     limit: int = 5, 
     min_dur: int = 10, 
     query: str = "nature",
-    orientation: str = None) -> list[str]:
+    orientation: str = None,
+    metrics_logger=None) -> list[str]:
     """
     Search for stock videos on Pexels with orientation and content filtering.
     """
@@ -139,8 +149,8 @@ async def search_for_stock_videos(
     video_urls = []
     
     try:
-        videos = response.get("videos", [])
-        filtered_videos = filter_negative_content(videos)
+        videos_data = response.get("videos", [])
+        filtered_videos = filter_negative_content(videos_data, query=query, metrics_logger=metrics_logger)
         
         for video in filtered_videos:
             if video["duration"] < min_dur:

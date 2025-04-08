@@ -12,6 +12,7 @@ services:
       - ./images:/app/images
       - ./data:/app/data  # Mount the whole data directory instead
       - /dev/dri:/dev/dri  # Add this line to access the Intel GPU
+      
     deploy:
       resources:
         limits:

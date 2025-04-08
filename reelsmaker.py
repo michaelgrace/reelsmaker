@@ -16,6 +16,53 @@ from streamlit.components.v1 import html
 # Add this import if not already present
 import os.path
 
+# Add this near the top of your main file, after the imports but before your main() function
+def check_log_dirs():
+    """Check log directories and their permissions."""
+    import os
+    from pathlib import Path
+    
+    tmp_dir = os.path.join(os.getcwd(), "tmp")
+    tmp_logs_dir = os.path.join(tmp_dir, "logs")
+    
+    logger.debug(f"tmp directory: {tmp_dir}")
+    logger.debug(f"  exists: {os.path.exists(tmp_dir)}")
+    if os.path.exists(tmp_dir):
+        logger.debug(f"  writable: {os.access(tmp_dir, os.W_OK)}")
+    
+    logger.debug(f"tmp/logs directory: {tmp_logs_dir}")
+    logger.debug(f"  exists: {os.path.exists(tmp_logs_dir)}")
+    if os.path.exists(tmp_logs_dir):
+        logger.debug(f"  writable: {os.access(tmp_logs_dir, os.W_OK)}")
+        logger.debug(f"  contents: {os.listdir(tmp_logs_dir) if os.path.exists(tmp_logs_dir) else 'N/A'}")
+
+def check_logging_status():
+    """Check the status of logging in the application."""
+    import os
+    from pathlib import Path
+    
+    # Check the tmp/logs directory
+    logs_dir = Path(os.path.join(os.getcwd(), "tmp", "logs"))
+    
+    logger.debug(f"Checking logs directory: {logs_dir}")
+    
+    if logs_dir.exists():
+        log_files = list(logs_dir.glob("*.csv"))
+        
+        logger.debug(f"Found {len(log_files)} log files:")
+        for log_file in log_files:
+            size = log_file.stat().st_size
+            logger.debug(f"  - {log_file.name} ({size} bytes)")
+            
+            # If CSV file exists but has almost no content, read it
+            if size < 1000 and log_file.suffix.lower() == '.csv':
+                try:
+                    with open(log_file, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                        logger.debug(f"    Content: {content[:200]}...")
+                except Exception as e:
+                    logger.error(f"    Error reading file: {e}")
+
 # Update the create_timer function for a more robust implementation
 def create_timer():
     """Create a JavaScript timer that updates every second without page refreshes"""
@@ -224,7 +271,29 @@ def format_elapsed_time(seconds):
     seconds = seconds % 60
     return f"{minutes}m {seconds}s"
 
+# Add this function definition before your main() function
+def add_log_diagnostics(reels_maker):
+    """Add diagnostic information about logging after video generation"""
+    try:
+        if hasattr(reels_maker, 'metrics_logger'):
+            logger.info(f"Metrics logger enabled: {reels_maker.metrics_logger.enabled}")
+            if hasattr(reels_maker.metrics_logger, 'log_file') and reels_maker.metrics_logger.log_file:
+                logger.info(f"Metrics log file: {reels_maker.metrics_logger.log_file}")
+                
+        if hasattr(reels_maker, 'match_logger'):
+            logger.info(f"Match logger enabled: {reels_maker.match_logger.enabled}")
+            if hasattr(reels_maker.match_logger, 'log_file') and reels_maker.match_logger.log_file:
+                logger.info(f"Match log file: {reels_maker.match_logger.log_file}")
+        
+        # Run the check_logging_status function we created earlier
+        check_logging_status()
+    except Exception as e:
+        logger.error(f"Error in log diagnostics: {e}")
+
 async def main():
+    # Add this at the beginning of your main function
+    check_log_dirs()
+    
     # At the beginning of your main function, add this to display previously generated videos
     if ("last_video_path" in st.session_state and 
         st.session_state["last_video_path"] is not None and 
@@ -799,6 +868,9 @@ async def main():
                     reels_maker = ReelsMaker(config)
                     output = await reels_maker.start(st_state=st.session_state)
                     
+                    # Add log diagnostics after video generation
+                    add_log_diagnostics(reels_maker)
+                    
                     # Only show output if not cancelled
                     if output is not None and not st.session_state.get("cancel_requested", False):
                         # Display video and success message
@@ -832,6 +904,13 @@ async def main():
                     # Cleanup regardless of success or cancellation
                     st.session_state["is_generating"] = False
                     st.session_state["timer_running"] = False
+                    
+                    # Close loggers to ensure files are properly written
+                    if 'reels_maker' in locals():
+                        if hasattr(reels_maker, 'metrics_logger'):
+                            reels_maker.metrics_logger.close()
+                        if hasattr(reels_maker, 'match_logger'):
+                            reels_maker.match_logger.close()
 
     if os.path.exists(cwd):
         try:

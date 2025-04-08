@@ -24,6 +24,9 @@ from app.base import (
 )
 from app.utils.strings import split_by_dot_or_newline
 from app.utils.path_util import download_resource
+from app.utils.metrics_logger import MetricsLogger
+from app.utils.metrics_logger import VideoMatchLogger
+# from app.utils.video_match_logger import VideoMatchLogger
 
 
 class ReelsMakerConfig(BaseGeneratorConfig):
@@ -71,6 +74,15 @@ class ReelsMaker(BaseEngine):
     def __init__(self, config: ReelsMakerConfig):
         super().__init__(config)
         self.config = config
+        
+        # Initialize both loggers
+        self.metrics_logger = MetricsLogger(enabled=True)  # Always enable for debugging
+        self.metrics_logger.initialize()
+        
+        # Add the VideoMatchLogger initialization
+        self.match_logger = VideoMatchLogger(enabled=True)  # Always enable for debugging
+        
+        logger.debug(f"Loggers initialized - metrics: {self.metrics_logger.enabled}, match: {self.match_logger.enabled}")
         
         # Ensure voice provider is properly set in synth_generator config
         if hasattr(self, 'synth_generator') and hasattr(self.synth_generator, 'config'):
@@ -150,6 +162,9 @@ class ReelsMaker(BaseEngine):
         # At the beginning of the method
         self.st_state = st_state  # Store the session state
         
+        # START LOGGING - Add this line
+        self.metrics_logger.mark_start('total_generation')
+        
         # Add this check before major processing steps
         if self.st_state and self.st_state.get("cancel_requested", False):
             logger.info("Cancellation requested, aborting video generation")
@@ -187,11 +202,19 @@ class ReelsMaker(BaseEngine):
             # Log the actual background music path (for debugging)
             logger.debug(f"Using background music path: {self.background_music_path}")
             
+            # Before script generation - start timing
+            self.metrics_logger.mark_start('script_generation')
+            
             # generate script from prompt
             try:
                 if self.config.prompt:
                     logger.debug(f"Generating script from prompt: {self.config.prompt}")
                     script = await self.generate_script(self.config.prompt)
+                    # ADD THIS LINE - log script metrics
+                    self.metrics_logger.mark_end('script_generation')
+                    self.metrics_logger.add_metric('prompt', self.config.prompt)
+                    self.metrics_logger.add_metric('script_length', len(script))
+                    
                     logger.debug(f"Generated script: {script}")
                 elif self.config.script:
                     script = self.config.script
@@ -204,10 +227,17 @@ class ReelsMaker(BaseEngine):
                     
                 sentences = split_by_dot_or_newline(script, 100)
                 sentences = list(filter(lambda x: x != "", sentences))
+                
+                # ADD THIS LINE - log sentence count
+                self.metrics_logger.add_metric('sentence_count', len(sentences))
+                
             except Exception as e:
                 logger.exception(f"Script generation or processing failed: {e}")
                 raise
 
+            # At the start of video search - mark time
+            self.metrics_logger.mark_start('video_search')
+            
             video_paths = []
             if self.config.video_paths:
                 logger.info("Using video paths from client...")
@@ -286,6 +316,15 @@ class ReelsMaker(BaseEngine):
                         logger.exception(f"Failed to create blank video: {e}")
                         raise ValueError("Unable to create video: no source videos available")
 
+            # After video search completes - add these lines
+            self.metrics_logger.mark_end('video_search')
+            max_videos = self.config.max_videos if hasattr(self.config, 'max_videos') else int(os.getenv("MAX_BG_VIDEOS", 3))
+            self.metrics_logger.add_metric('videos_requested', max_videos)
+            self.metrics_logger.add_metric('videos_found', len(video_paths))
+            
+            # Before audio generation - mark time
+            self.metrics_logger.mark_start('audio_generation')
+            
             data: list[TempData] = []
 
             # for each sentence, generate audio
@@ -296,6 +335,16 @@ class ReelsMaker(BaseEngine):
                         synth_clip=FileClip(audio_path),
                     )
                 )
+
+                # After a video is selected for a sentence:
+                if hasattr(self, 'match_logger') and self.match_logger.enabled:
+                    self.match_logger.log_match(
+                        sentence=sentence,
+                        search_query=sentence,
+                        video_url=video_paths[0] if video_paths else '',  # Use actual video path
+                        voice_provider=self.config.synth_config.voice_provider,
+                        voice_name=self.config.synth_config.voice
+                    )
 
             # Filter out any None values from audio_clips
             audio_clips = [clip for clip in data if clip.synth_clip is not None]
@@ -449,6 +498,13 @@ class ReelsMaker(BaseEngine):
 
             # Verify the output file exists and has content
             if os.path.exists(final_video_path) and os.path.getsize(final_video_path) > 0:
+                # Add these lines
+                self.metrics_logger.add_metric('final_filesize_mb', round(os.path.getsize(final_video_path) / (1024 * 1024), 2))
+                
+                # Close out the metrics and log
+                self.metrics_logger.mark_end('total_generation')
+                self.metrics_logger.log_entry()
+                
                 logger.info(f"Final video: {final_video_path}")
                 logger.info("Video generated successfully!")
                 # After generating the final video, clean up large objects:
@@ -462,10 +518,17 @@ class ReelsMaker(BaseEngine):
                 return None
             
         except Exception as e:
+            # ADD THESE LINES - log error in metrics
+            self.metrics_logger.add_error(str(type(e).__name__))
+            self.metrics_logger.log_entry()
+            
             # Enhanced error logging
             logger.exception(f"Video generation failed with error: {e}")
             return None
         finally:
+            # ADD THIS LINE - ensure metrics file is closed
+            self.metrics_logger.close()
+            
             # Make sure to reset generation state if passed from UI
             if st_state:
                 st_state["is_generating"] = False
@@ -571,3 +634,17 @@ class ReelsMaker(BaseEngine):
     async def run_processing(self, st_state):
         if self.check_cancellation(st_state):  # Fixed: use the passed st_state parameter
             raise Exception("Processing cancelled by user")
+
+    # async def search_videos_for_sentence(self, sentence, search_query):
+        # # After your existing video selection code
+        # selected_video = ...  # Your existing code that gets the selected video
+        
+        # # Add this logging code after a video is selected:
+        # if hasattr(self, 'match_logger') and self.match_logger.enabled:
+        #     self.match_logger.log_match(
+        #         sentence=sentence.text if hasattr(sentence, 'text') else str(sentence),
+        #         search_query=search_query,
+        #         video_url=selected_video.get('url', ''),  # Use the actual selected video URL
+        #         voice_provider=getattr(self.config, 'voice_provider', ''),
+        #         voice_name=getattr(self.config, 'voice_name', '')
+        #     )
