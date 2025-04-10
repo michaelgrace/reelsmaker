@@ -104,33 +104,30 @@ class MetricsLogger:
             return
         self.metrics[name] = value
     
-    def add_video_info(self, video_data: Dict[str, Any]):
-        """Add video-specific information."""
-        if not self.enabled:
-            return
+    def add_video_info(self, video_data):
+        """Add video metadata to the current metrics entry."""
+        # Store the primary video info in the metrics dictionary
+        if video_data:
+            # Add basic video metadata to metrics
+            self.add_metric('video_url_path', video_data.get('url', ''))
+            self.add_metric('video_duration', video_data.get('duration', 0))
+            self.add_metric('video_id', video_data.get('id', ''))
+            self.add_metric('video_width', video_data.get('width', 0))
+            self.add_metric('video_height', video_data.get('height', 0))
             
-        # Extract URL path
-        video_url = video_data.get('url', '')
-        if '/video/' in video_url:
-            self.metrics['video_url_path'] = video_url.split('/video/')[1]
-        
-        # Add other video data
-        for key in ['duration', 'id', 'width', 'height']:
-            if key in video_data:
-                self.metrics[f'video_{key}'] = video_data[key]
-        
-        # Calculate orientation
-        if 'width' in video_data and 'height' in video_data:
-            width = video_data['width']
-            height = video_data['height']
-            if width and height:
-                ratio = width / height
-                if ratio > 1.2:
-                    self.metrics['orientation'] = 'landscape'
-                elif ratio < 0.8:
-                    self.metrics['orientation'] = 'portrait'
-                else:
-                    self.metrics['orientation'] = 'square'
+            # Add orientation based on dimensions
+            if 'width' in video_data and 'height' in video_data:
+                width = video_data.get('width', 0)
+                height = video_data.get('height', 0)
+                if width and height:
+                    ratio = width / height
+                    if ratio > 1.2:
+                        orientation = "landscape"
+                    elif ratio < 0.8:
+                        orientation = "portrait"
+                    else:
+                        orientation = "square"
+                    self.add_metric('orientation', orientation)
     
     def add_error(self, error_type: str):
         """Track an error that occurred during processing."""

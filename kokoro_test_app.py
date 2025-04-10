@@ -1,3 +1,6 @@
+# run with docker 
+#  docker-compose -f docker-compose-test.yml down && docker-compose -f docker-compose-test.yml up --build
+
 """Simple Streamlit app to test TTS integration."""
 import os
 import json

@@ -1,3 +1,6 @@
+# run from root while reelsmaker is running
+# docker exec -it reelsmaker python test_pexels_filter.py
+
 import asyncio
 import os
 import datetime

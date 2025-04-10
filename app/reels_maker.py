@@ -26,7 +26,7 @@ from app.utils.strings import split_by_dot_or_newline
 from app.utils.path_util import download_resource
 from app.utils.metrics_logger import MetricsLogger
 from app.utils.video_match_logger import VideoMatchLogger
-
+from app.video_gen import VideoGenerator  
 
 class ReelsMakerConfig(BaseGeneratorConfig):
     max_videos: int = 3  # Add this field with default value
@@ -73,13 +73,15 @@ class ReelsMaker(BaseEngine):
     def __init__(self, config: ReelsMakerConfig):
         super().__init__(config)
         self.config = config
+        
+        # Initialize metrics logger
         self.metrics_logger = MetricsLogger(enabled=True)  # Always enable for debugging
         self.metrics_logger.initialize()
         
-        # Add the VideoMatchLogger initialization
-        self.match_logger = VideoMatchLogger(enabled=True)  # Always enable for debugging
+        # Use just one VideoMatchLogger instance with a consistent name
+        self.video_match_logger = VideoMatchLogger(enabled=True)  # Initialize video match logger
         
-        logger.debug(f"Loggers initialized - metrics: {self.metrics_logger.enabled}, match: {self.match_logger.enabled}")
+        logger.debug(f"Loggers initialized - metrics: {self.metrics_logger.enabled}, match: {self.video_match_logger.enabled}")
         
         # Ensure voice provider is properly set in synth_generator config
         if hasattr(self, 'synth_generator') and hasattr(self.synth_generator, 'config'):
@@ -251,6 +253,19 @@ class ReelsMaker(BaseEngine):
                     )
                     if not video_path:
                         continue
+
+                    # Log this match with detailed info
+                    self.video_match_logger.log_match(
+                        sentence=script,
+                        search_query=search_term,
+                        video_url=video_path,
+                        voice_provider=getattr(self.config, 'voice_provider', 
+                                               getattr(self.config.synth_config, 'voice_provider', '') 
+                                               if hasattr(self.config, 'synth_config') else ''),
+                        voice_name=getattr(self.config, 'voice_name', 
+                                          getattr(self.config.synth_config, 'voice', '')
+                                          if hasattr(self.config, 'synth_config') else '')
+                    )
 
                     remote_urls.append(video_path)
 
@@ -620,3 +635,59 @@ class ReelsMaker(BaseEngine):
     async def run_processing(self, st_state):
         if self.check_cancellation(st_state):  # Fixed: use the passed st_state parameter
             raise Exception("Processing cancelled by user")
+
+    def generate_reel(self, *args, **kwargs):
+        """
+        Main method to generate a video reel.
+        
+        Args:
+            *args: Variable length argument list.
+            **kwargs: Arbitrary keyword arguments.
+            
+        Returns:
+            dict: A dictionary containing status and either output path or error message.
+        """
+        try:
+            # Use the already initialized loggers from __init__ instead of creating new ones
+            # Start overall timing
+            self.metrics_logger.mark_start('total_generation')
+            
+            # If video_generator hasn't been initialized yet, do it now
+            if not hasattr(self, 'video_generator'):
+                self.video_generator = VideoGenerator(
+                    base_class=self,
+                    video_match_logger=self.video_match_logger
+                )
+            
+            # ... your existing code that generates the video ...
+            # (video search, audio generation, video processing, etc.)
+            
+            # Gather final metrics
+            if hasattr(self, 'output_path') and self.output_path:
+                output_path = self.output_path
+                # Add final video stats if available
+                try:
+                    filesize_mb = os.path.getsize(output_path) / (1024 * 1024)
+                    self.metrics_logger.add_metric('final_filesize_mb', round(filesize_mb, 2))
+                    
+                    # You could add more final stats here
+                    # (resolution, duration, etc.)
+                except Exception as e:
+                    logger.error(f"Error collecting final video stats: {e}")
+            
+            # At the end, right before returning success:
+            self.metrics_logger.mark_end('total_generation')
+            self.metrics_logger.log_entry()  # Write collected metrics to CSV file
+            
+            return {"status": "success", "output_path": output_path}
+        
+        except Exception as e:
+            logger.exception("Error generating reel")
+            
+            # Log error and still save metrics
+            if hasattr(self, 'metrics_logger'):
+                self.metrics_logger.add_error(str(e))
+                self.metrics_logger.mark_end('total_generation')
+                self.metrics_logger.log_entry()  # Write metrics even on error
+            
+            return {"status": "error", "message": str(e)}

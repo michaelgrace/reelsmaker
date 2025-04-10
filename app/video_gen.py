@@ -65,11 +65,16 @@ class VideoGenerator:
     def __init__(
         self,
         base_class: "BaseEngine",
+        video_match_logger=None
     ):
         self.job_id = base_class.config.job_id
         self.config = base_class.config.video_gen_config
         self.cwd = base_class.cwd
         self.base_engine = base_class
+        
+        # Store both loggers
+        self.metrics_logger = base_class.metrics_logger if hasattr(base_class, 'metrics_logger') else None
+        self.video_match_logger = video_match_logger
 
         # Common FFmpeg locations to check
         ffmpeg_paths = [
@@ -116,8 +121,7 @@ class VideoGenerator:
                 logger.warning("Using 'ffmpeg' command as last resort")
 
     async def get_video_url(self, search_term: str) -> str | None:
-        """Get a video URL based on search term and target aspect ratio"""
-        
+        """Get a single video URL matching the search term."""
         # Map aspect ratio to orientation
         aspect_to_orientation = {
             "9:16": "portrait",
@@ -134,23 +138,30 @@ class VideoGenerator:
         
         try:
             # First try with specific orientation
-            urls = await search_for_stock_videos(
+            videos = await search_for_stock_videos(
                 limit=3,
                 min_dur=10,
                 query=search_term,
-                orientation=orientation
+                orientation=orientation,
+                metrics_logger=self.base_engine.metrics_logger,
+                video_match_logger=self.video_match_logger
             )
             
-            if urls:
-                logger.info(f"Found {len(urls)} {orientation} videos for '{search_term}'")
-                return urls[0]
+            if videos:
+                logger.info(f"Found {len(videos)} {orientation} videos for '{search_term}'")
+                # Extract the URL from the first video (videos now contain metadata)
+                if isinstance(videos[0], dict):
+                    return videos[0]['url']
+                return videos[0]
                 
             # If no results with orientation, try with a more generic search
             logger.warning(f"No {orientation} videos found for '{search_term}'. Trying generic search...")
             urls = await search_for_stock_videos(
                 limit=3,
                 min_dur=10,
-                query=search_term
+                query=search_term,
+                metrics_logger=self.base_engine.metrics_logger,
+                video_match_logger=self.video_match_logger  # Add this
             )
             
             if urls:
@@ -171,7 +182,9 @@ class VideoGenerator:
                 limit=2,
                 min_dur=10,
                 query=generic_query,
-                orientation=orientation
+                orientation=orientation,
+                metrics_logger=self.base_engine.metrics_logger,
+                video_match_logger=self.video_match_logger  # Add this
             )
             
             return urls[0] if urls else None
